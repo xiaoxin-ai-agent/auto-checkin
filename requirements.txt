@@ -1,0 +1,9 @@
+requests>=2.31.0
+PyYAML>=6.0.1
+APScheduler>=3.10.4
+# ---------- 可选依赖：按使用的模式安装 ----------
+# 客户端模式(cdp) / 浏览器模式(browser)：安装后还需执行 playwright install chromium
+playwright>=1.40.0
+# 桌面自动化模式(desktop，Windows)
+uiautomation>=2.0.0
+pyautogui>=0.9.54

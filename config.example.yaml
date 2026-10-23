@@ -1,0 +1,159 @@
+# =============================================================
+# 自动签到工具配置（客户端版）
+# 复制本文件为 config.yaml，按注释填写各平台参数
+# 敏感信息用环境变量注入，格式 ${TRAE_COOKIE}
+#
+# 三种签到器类型（checker）：
+#   cdp      -> 连接本机桌面客户端的调试端口，在客户端真实上下文签到（推荐）
+#   http     -> 直接调用 HTTP 接口（用客户端 DevTools 抓包后填写）
+#   desktop  -> 桌面 UI 自动化，直接操作窗口控件（非 Electron 客户端兜底）
+# =============================================================
+
+global:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+  jitter_min: 1          # 任务间随机延迟下限（秒），模拟人工、防风控
+  jitter_max: 5          # 任务间随机延迟上限（秒）
+  retry: 2               # 失败重试次数
+  retry_backoff: 10      # 重试基础间隔（秒）
+
+schedule:
+  cron: "30 8 * * *"     # daemon 模式：每天 08:30
+  timezone: "Asia/Shanghai"
+
+notify:
+  enabled: false
+  only_on_failure: false
+  serverchan: { enabled: false, sendkey: "${SCT_SENDKEY}" }
+  bark: { enabled: false, url: "${BARK_URL}", group: "checkin" }
+  dingtalk: { enabled: false, access_token: "${DINGTALK_TOKEN}" }
+  feishu: { enabled: false, webhook: "${FEISHU_WEBHOOK}" }
+  wecom: { enabled: false, key: "${WECOM_KEY}" }
+  webhook: { enabled: false, url: "${CUSTOM_WEBHOOK}", headers: {} }
+
+tasks:
+
+  # ============================================================
+  # 1. Trae Code 每日签到（客户端）
+  # ------------------------------------------------------------
+  # 准备：客户端需带调试端口启动
+  #   方式A：修改快捷方式目标 -> "C:\...\Trae.exe" --remote-debugging-port=9222
+  #   方式B：在本任务里配置 launch_cmd，让工具自动拉起（推荐，见下）
+  # 确认页面：python main.py cdp-targets --task trae-client
+  #          看输出里哪个页面是积分/签到页，把关键字填到 target_match
+  # ============================================================
+  - name: "trae-client"
+    platform: "Trae"
+    enabled: false
+    checker: cdp
+    settings:
+      debug_port: 9222
+      launch_cmd: "C:\\...\\Trae\\Trae.exe --remote-debugging-port=9222"
+      # launch_cmd 说明：改为你本机 Trae 的真实路径
+      #   查找方法：右键 Trae 快捷方式 -> 属性 -> 目标
+      ready_timeout: 90          # 启动后等待调试端口就绪的秒数
+      wait_after_launch: 10      # 端口就绪后再等待客户端渲染完成的秒数
+      target_match: "trae"       # 匹配页面 url/title 的关键字（用 cdp-targets 查看）
+      kill_process: "Trae.exe"   # 签到后是否关闭客户端（不需要则删除本行）
+      actions:
+        # 方式一（最省事）：在客户端页面上下文直接发请求，自动带登录态和 token
+        - eval: "fetch('/api/user/sign_in', {method:'POST'}).then(r=>r.text())"
+        # 方式二：找签到按钮点击（两者二选一，或都用）
+        # - wait_for_selector: "text=签到"
+        # - click: "text=签到"
+        - wait: 1500
+        - screenshot: "logs/trae_client.png"
+
+  # ============================================================
+  # 2. CodeArts 码道 活动福利-每日签到（客户端）
+  # ============================================================
+  - name: "codearts-client"
+    platform: "CodeArts"
+    enabled: false
+    checker: cdp
+    settings:
+      debug_port: 9333
+      launch_cmd: "C:\\...\\CodeArts\\CodeArts.exe --remote-debugging-port=9333"
+      ready_timeout: 90
+      wait_after_launch: 10
+      target_match: "codearts"
+      # kill_process: "CodeArts.exe"
+      actions:
+        - eval: "fetch('/xxx/signin', {method:'POST'}).then(r=>r.text())"
+        # 或点击客户端内的签到按钮：
+        # - wait_for_selector: "text=签到"
+        # - click: "text=签到"
+        - wait: 1500
+        - screenshot: "logs/codearts_client.png"
+
+  # ============================================================
+  # 3. WorkBuddy buddy加油站 每日签到
+  # ------------------------------------------------------------
+  # 若 WorkBuddy 是 Electron 客户端 -> 用 cdp（复制上面模板改路径和端口）
+  # 若是非 Electron 客户端（原生/Qt/JetBrains 插件宿主）-> 用 desktop 模式
+  # ============================================================
+  - name: "workbuddy-client"
+    platform: "WorkBuddy"
+    enabled: false
+    checker: cdp
+    settings:
+      debug_port: 9444
+      launch_cmd: "C:\\...\\WorkBuddy\\WorkBuddy.exe --remote-debugging-port=9444"  # TODO: 真实路径
+      ready_timeout: 90
+      wait_after_launch: 12
+      target_match: "buddy"     # TODO: 用 cdp-targets 确认
+      actions:
+        - eval: "fetch('/api/xxx/checkin', {method:'POST'}).then(r=>r.text())"
+        - wait: 1500
+
+  # ---- WorkBuddy 备选：桌面 UI 自动化（非 Electron 时用）----
+  - name: "workbuddy-desktop"
+    platform: "WorkBuddy"
+    enabled: false
+    checker: desktop
+    settings:
+      window_title: "WorkBuddy"      # 窗口标题关键字（支持正则）
+      launch_cmd: "C:\\...\\WorkBuddy\\WorkBuddy.exe"   # 未找到窗口时自动拉起
+      wait_after_launch: 20
+      kill_process: "WorkBuddy.exe"
+      steps:
+        # 第一步建议先 dump 一次，看日志里的控件树，确定按钮名称
+        - { type: dump, value: true }
+        - { type: wait, value: 2 }
+        - { type: click_text, value: "签到" }
+        # 若控件定位不到，用图像匹配兜底（先截图保存为 imgs/signin.png）
+        # - { type: image, value: "imgs/signin.png" }
+        - { type: wait, value: 2 }
+
+  # ============================================================
+  # 备选：HTTP 直连接口模式
+  # ------------------------------------------------------------
+  # 先用客户端 DevTools 抓包拿到接口（Help -> Toggle Developer Tools，
+  # 或 Ctrl+Shift+P 搜 Developer: Toggle Developer Tools），
+  # 再把 URL/Cookie/请求体填到这里；签名难复现时优先用 cdp 模式
+  # ============================================================
+  - name: "trae-http"
+    platform: "Trae"
+    enabled: false
+    checker: http
+    settings:
+      timeout: 20
+      steps:
+        - name: "执行签到"
+          method: POST
+          url: "https://www.trae.com.cn/api/xxx/sign_in"   # TODO: 抓包得到的真实接口
+          headers:
+            Cookie: "${TRAE_COOKIE}"
+            Content-Type: "application/json"
+          json: { source: 1 }
+          success:
+            status: 200
+            json_contains: { code: 0 }
+          already:
+            keywords: ["已签到", "重复签到"]
+            message: "今日已签到"
+          extract_points: "$.data.points"
+          extract_message: "$.message"
+
+# ---------------- 环境变量（PowerShell） ----------------
+# $env:TRAE_COOKIE = "..."
+# [Environment]::SetEnvironmentVariable("TRAE_COOKIE", "...", "User")   # 持久化
