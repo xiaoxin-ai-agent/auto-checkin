@@ -114,7 +114,7 @@ python main.py history                     # 查看历史
 python main.py daemon
 
 # 方式二：Windows 任务计划（推荐，开机即跑，无需常驻）
-schtasks /create /tn "AutoCheckin" /tr "python C:\Users\zhangyabiao\CodeBuddy\20261022100003\main.py run" /sc daily /st 08:30
+schtasks /create /tn "AutoCheckin" /tr "python main.py run" /sc daily /st 08:30
 ```
 
 GitHub Actions 不适合本方案（需要本机客户端在线），请在本机或常开的机器上运行。
