@@ -132,6 +132,14 @@ settings:
   target_match: "workbench"           # 页面 url/title 关键字，用 cdp-targets 确认
   kill_process: "xxx.exe"             # 可选：签到后关闭客户端
   kill_after_launch: true             # 仅在"本次由工具拉起"时才关闭，不打扰正在使用的客户端
+  process_name: "xxx.exe"             # 进程名，用于检测客户端是否已在运行
+  force_restart: true                 # 客户端已在运行但没开调试端口时，优雅关闭后重启
+  force_kill: false                   # 是否允许强杀（false=有未保存内容时放弃，避免丢数据）
+  graceful_timeout: 12                # 优雅关闭等待秒数
+  target_exclude:                     # 排除设置/辅助窗口（与主窗口 URL 相同，容易误选）
+    - "windowKind=settings"
+    - "windowAppId=settings"
+    - "windowPreset=utility"
   actions:
     - already_text: "已签到"           # 命中即视为今日已完成
     - click_selector: ".xxx"          # CSS 选择器点击（自动穿透 shadow DOM）
@@ -189,15 +197,20 @@ actions:
 **CodeArts 码道（9333）** —— 标题栏"限时福利" → 福利面板 → 每日签到行：
 ```yaml
 actions:
-  - already_text: "今日已领"
+  - already_text: ["今日已领", "已领取", "明天再来"]
   - click_selector: '[aria-label="限时福利"]'
   - wait: 1500
-  - already_text: "今日已领"
-  - click_near: { text: "每日签到领积分", target: "button" }   # 按行标题定位按钮
-  - expect_text: "今日已领"
+  - already_text: ["今日已领", "已领取", "明天再来"]
+  # 行标题文案会随活动变化（每日签到领积分 / 每日签到领100积分），
+  # 因此用"包含匹配 + 行内按钮"定位，不依赖具体文案
+  - click_near: { text: "每日签到领", target: "button", match: "contains" }
+  - expect_text: ["今日已领", "已领取", "明天再来"]
 ```
-> `click_near` 会先找到"每日签到领积分"这行文字，再点同一行内的按钮，
-> 因此按钮文案是"立即领取"还是"今日已领"都不影响，比写死文案更稳。
+> `click_near` 会先找到包含"每日签到领"的行，再点同一行内的按钮，
+> 按钮文案是"每日领取"还是"今日已领"都不影响。
+
+> **版本更新注意**：CodeArts 自动更新后会自行重启（会丢掉调试端口参数），
+> 此时当天的自动签到会跳过并在日志中说明。重新打开一次客户端即可恢复。
 
 ### 自动拉起与自动关闭
 
@@ -207,9 +220,34 @@ actions:
 |------|------|
 | 客户端未启动 | 工具带调试端口拉起 → 签到 → 自动关闭 |
 | 客户端已启动（带端口） | 直接签到，不关闭你的窗口 |
-| 客户端已启动（未带端口） | 提示"需完全退出后重启"，不会误操作 |
+| 客户端已启动（未带端口） | 尝试优雅关闭后重启；若有未保存内容则放弃并提示（不会强杀） |
 
 因此每天的自动签到不再需要你手动开客户端。
+
+> **多窗口注意**：WorkBuddy 会同时存在主窗口与设置窗口（URL 都含 `index.html`）。
+> 工具通过 `target_exclude` 排除设置窗口，并用"是否包含签到锚点元素"来确认主窗口，
+> 不会误选到设置窗口。
+
+### 让手动打开也带调试端口（推荐）
+
+把客户端快捷方式的「目标」改成带参数形式，这样无论谁启动都带调试端口：
+
+```
+"...\WorkBuddy.exe"   --remote-debugging-port=9444
+"...\Trae CN.exe"     --remote-debugging-port=9222
+"...\codearts-agent.exe" --remote-debugging-port=9333
+```
+
+WorkBuddy 与 Trae 的桌面/开始菜单快捷方式已自动更新；
+CodeArts 的快捷方式位于 `C:\Users\Public\Desktop`（需管理员权限），
+如需修改请用管理员 PowerShell 执行：
+
+```powershell
+$sh = New-Object -ComObject WScript.Shell
+$lnk = $sh.CreateShortcut("C:\Users\Public\Desktop\CodeArts Agent.lnk")
+$lnk.Arguments = "--remote-debugging-port=9333"
+$lnk.Save()
+```
 
 ### 桌面自动化模式（`checker: desktop`）
 
